@@ -35,41 +35,41 @@ export class EvaluationFunction {
   }
 
   static evaluateMaterial(gameEngine, player) {
-    const myHorses = gameEngine.board.getPlayerHorses(player).length;
-    const oppHorses = gameEngine.board.getPlayerHorses(
+    const myPieces = gameEngine.board.countPieces(player);
+    const oppPieces = gameEngine.board.countPieces(
       player === PLAYERS.WHITE ? PLAYERS.BLACK : PLAYERS.WHITE
-    ).length;
+    );
 
-    return (myHorses - oppHorses) * this.WEIGHTS.PIECE_VALUE;
+    return (myPieces - oppPieces) * this.WEIGHTS.PIECE_VALUE;
   }
 
   static evaluatePosition(gameEngine, player) {
     let score = 0;
-    const myHorses = gameEngine.board.getPlayerHorses(player);
+    const myPieces = gameEngine.board.getPlayerPieces(player);
     const opponent = player === PLAYERS.WHITE ? PLAYERS.BLACK : PLAYERS.WHITE;
-    const oppHorses = gameEngine.board.getPlayerHorses(opponent);
+    const oppPieces = gameEngine.board.getPlayerPieces(opponent);
 
-    for (const horse of myHorses) {
-      const { row, col } = horse.position;
+    for (const piece of myPieces) {
+      const { row, col } = piece.position;
 
       score += this.getCenterControlScore(row, col);
       score += this.getEdgePenalty(row, col);
 
-      for (const oppHorse of oppHorses) {
+      for (const oppPiece of oppPieces) {
         const distance = this.getManhattanDistance(
           row, col,
-          oppHorse.position.row,
-          oppHorse.position.col
+          oppPiece.position.row,
+          oppPiece.position.col
         );
         score += distance * this.WEIGHTS.ENEMY_DISTANCE;
       }
 
-      for (const allyHorse of myHorses) {
-        if (allyHorse.id !== horse.id) {
+      for (const allyPiece of myPieces) {
+        if (allyPiece.id !== piece.id) {
           const distance = this.getManhattanDistance(
             row, col,
-            allyHorse.position.row,
-            allyHorse.position.col
+            allyPiece.position.row,
+            allyPiece.position.col
           );
           score += Math.max(0, 4 - distance) * this.WEIGHTS.ALLY_DISTANCE;
         }
@@ -125,29 +125,28 @@ export class EvaluationFunction {
   static evaluateThreats(gameEngine, player) {
     let score = 0;
     const opponent = player === PLAYERS.WHITE ? PLAYERS.BLACK : PLAYERS.WHITE;
-    const myHorses = gameEngine.board.getPlayerHorses(player);
-    const oppHorses = gameEngine.board.getPlayerHorses(opponent);
+    const myPieces = gameEngine.board.getPlayerPieces(player);
+    const oppPieces = gameEngine.board.getPlayerPieces(opponent);
 
-    for (const horse of myHorses) {
-      const { row, col } = horse.position;
+    for (const piece of myPieces) {
+      const { row, col } = piece.position;
       const validMoves = MoveValidator.getValidMoves(gameEngine.board, row, col);
 
       for (const move of validMoves) {
-        const targetPiece = gameEngine.board.getPieceAt(move.row, move.col);
-        if (targetPiece && targetPiece.player === opponent) {
+        if (move.type === 'capture' && move.captured) {
           score += this.WEIGHTS.ATTACK_THREAT;
         }
       }
 
-      for (const allyHorse of myHorses) {
-        if (allyHorse.id !== horse.id) {
+      for (const allyPiece of myPieces) {
+        if (allyPiece.id !== piece.id) {
           const protectionMoves = MoveValidator.getValidMoves(
             gameEngine.board,
-            allyHorse.position.row,
-            allyHorse.position.col
+            allyPiece.position.row,
+            allyPiece.position.col
           );
 
-          if (protectionMoves.some(m => m.row === row && m.col === col)) {
+          if (protectionMoves.some(m => m.to.row === row && m.to.col === col)) {
             score += this.WEIGHTS.PROTECTION;
           }
         }
@@ -158,26 +157,26 @@ export class EvaluationFunction {
   }
 
   static evaluateEndgame(gameEngine, player) {
-    const totalHorses = gameEngine.board.getPlayerHorses(PLAYERS.WHITE).length +
-                        gameEngine.board.getPlayerHorses(PLAYERS.BLACK).length;
+    const totalPieces = gameEngine.board.countPieces(PLAYERS.WHITE) +
+                        gameEngine.board.countPieces(PLAYERS.BLACK);
 
-    if (totalHorses > 3) return 0;
+    if (totalPieces > 4) return 0;
 
     let score = 0;
     const opponent = player === PLAYERS.WHITE ? PLAYERS.BLACK : PLAYERS.WHITE;
-    const myHorses = gameEngine.board.getPlayerHorses(player);
-    const oppHorses = gameEngine.board.getPlayerHorses(opponent);
+    const myPieces = gameEngine.board.getPlayerPieces(player);
+    const oppPieces = gameEngine.board.getPlayerPieces(opponent);
 
-    if (myHorses.length > oppHorses.length) {
-      score += this.WEIGHTS.ENDGAME_BONUS * (myHorses.length - oppHorses.length);
+    if (myPieces.length > oppPieces.length) {
+      score += this.WEIGHTS.ENDGAME_BONUS * (myPieces.length - oppPieces.length);
 
-      for (const myHorse of myHorses) {
-        for (const oppHorse of oppHorses) {
+      for (const myPiece of myPieces) {
+        for (const oppPiece of oppPieces) {
           const distance = this.getManhattanDistance(
-            myHorse.position.row,
-            myHorse.position.col,
-            oppHorse.position.row,
-            oppHorse.position.col
+            myPiece.position.row,
+            myPiece.position.col,
+            oppPiece.position.row,
+            oppPiece.position.col
           );
           score -= distance * 2;
         }

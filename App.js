@@ -4,11 +4,11 @@ import {
   Text,
   View,
   TouchableOpacity,
-  SafeAreaView,
   Alert,
   ActivityIndicator,
   ScrollView
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { GameEngine } from './src/game/GameEngine';
 import { MinimaxAI } from './src/ai/MinimaxAI';
 import { PLAYERS, GAME_STATUS } from './src/utils/constants';
@@ -104,9 +104,30 @@ export default function App() {
         setValidMoves([]);
       }
     } else if (piece && piece.player === PLAYERS.WHITE) {
-      setSelectedSquare({ row, col });
-      const moves = gameEngine.getValidMovesForPiece(row, col);
-      setValidMoves(moves);
+      // ตรวจสอบว่าตัวนี้สามารถเดินได้หรือไม่ (ตาม mandatory capture rule)
+      if (canSelectPiece(row, col)) {
+        setSelectedSquare({ row, col });
+        const moves = gameEngine.getValidMovesForPiece(row, col);
+        // แปลง move structure ให้ตรงกับ UI
+        const processedMoves = moves.map(move => move.to);
+        setValidMoves(processedMoves);
+      }
+    }
+  };
+
+  const canSelectPiece = (row, col) => {
+    // ดูว่ามีการกินได้ในบอร์ดหรือไม่
+    const allPlayerMoves = gameEngine.getAllValidMoves();
+    const hasCaptures = allPlayerMoves.some(move => move.type === 'capture');
+
+    if (!hasCaptures) {
+      // ไม่มีการกิน ให้เลือกตัวไหนก็ได้ที่เดินได้
+      const pieceMoves = gameEngine.getValidMovesForPiece(row, col);
+      return pieceMoves.length > 0;
+    } else {
+      // มีการกิน ให้เลือกได้เฉพาะตัวที่กินได้
+      const pieceMoves = gameEngine.getValidMovesForPiece(row, col);
+      return pieceMoves.some(move => move.type === 'capture');
     }
   };
 
@@ -130,6 +151,12 @@ export default function App() {
     );
     const isLight = (row + col) % 2 === 0;
 
+    // ตรวจสอบว่าตัวนี้เลือกได้หรือไม่ (สำหรับ mandatory capture)
+    const isPieceSelectable = piece &&
+                              piece > 0 &&
+                              currentPlayer === PLAYERS.WHITE &&
+                              canSelectPiece(row, col);
+
     let squareStyle = [
       styles.square,
       isLight ? styles.lightSquare : styles.darkSquare
@@ -143,6 +170,25 @@ export default function App() {
       squareStyle.push(styles.validMove);
     }
 
+    // เพิ่ม highlight สำหรับตัวที่กินได้ (mandatory capture)
+    if (isPieceSelectable && !selectedSquare) {
+      const allPlayerMoves = gameEngine.getAllValidMoves();
+      const hasCaptures = allPlayerMoves.some(move => move.type === 'capture');
+      const pieceMoves = gameEngine.getValidMovesForPiece(row, col);
+      const pieceCanCapture = pieceMoves.some(move => move.type === 'capture');
+
+      if (hasCaptures && pieceCanCapture) {
+        squareStyle.push(styles.mustCapture);
+      }
+    }
+
+    // แสดงตัวหมากฮอส
+    let pieceSymbol = '';
+    if (piece === 1) pieceSymbol = '⚪'; // White man
+    else if (piece === 2) pieceSymbol = '♔'; // White king
+    else if (piece === -1) pieceSymbol = '⚫'; // Black man
+    else if (piece === -2) pieceSymbol = '♚'; // Black king
+
     return (
       <TouchableOpacity
         key={`${row}-${col}`}
@@ -151,7 +197,7 @@ export default function App() {
         disabled={isAIThinking}
       >
         <Text style={styles.piece}>
-          {piece === 1 ? '♘' : piece === -1 ? '♞' : ''}
+          {pieceSymbol}
         </Text>
         {isValidMove && !piece && (
           <View style={styles.moveIndicator} />
@@ -169,7 +215,7 @@ export default function App() {
   return (
     <SafeAreaView style={styles.container}>
       <ScrollView contentContainerStyle={styles.scrollContainer}>
-        <Text style={styles.title}>หมากฮอสไทย AI</Text>
+        <Text style={styles.title}>หมากฮอสไทย (Thai Checkers) AI</Text>
 
         <View style={styles.statusBar}>
           <Text style={styles.statusText}>
@@ -223,8 +269,12 @@ export default function App() {
         <View style={styles.stats}>
           <Text style={styles.statsText}>รอบที่: {gameEngine.turnCount}</Text>
           <Text style={styles.statsText}>
-            ม้าขาว: {gameEngine.board.getPlayerHorses(PLAYERS.WHITE).length} |
-            ม้าดำ: {gameEngine.board.getPlayerHorses(PLAYERS.BLACK).length}
+            หมากขาว: {gameEngine.board.countPieces(PLAYERS.WHITE)} |
+            หมากดำ: {gameEngine.board.countPieces(PLAYERS.BLACK)}
+          </Text>
+          <Text style={styles.statsText}>
+            ฮอสขาว: {gameEngine.board.countKings(PLAYERS.WHITE)} |
+            ฮอสดำ: {gameEngine.board.countKings(PLAYERS.BLACK)}
           </Text>
         </View>
       </ScrollView>
@@ -288,6 +338,11 @@ const styles = StyleSheet.create({
   },
   validMove: {
     backgroundColor: 'rgba(127, 176, 105, 0.5)',
+  },
+  mustCapture: {
+    backgroundColor: 'rgba(255, 100, 100, 0.7)',
+    borderWidth: 2,
+    borderColor: '#FF3333',
   },
   piece: {
     fontSize: 30,

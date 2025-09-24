@@ -3,7 +3,7 @@ import { BOARD_SIZE, PLAYERS, PIECE_TYPES, INITIAL_POSITIONS } from '../utils/co
 export class Board {
   constructor() {
     this.grid = this.createEmptyBoard();
-    this.horses = {
+    this.pieces = {
       [PLAYERS.WHITE]: [],
       [PLAYERS.BLACK]: []
     };
@@ -17,16 +17,17 @@ export class Board {
   }
 
   initializeBoard() {
+    // วางหมากเฉพาะช่องดำ (row + col เป็นเลขคี่)
     for (const player of [PLAYERS.WHITE, PLAYERS.BLACK]) {
       INITIAL_POSITIONS[player].forEach((pos, index) => {
-        const horse = {
+        const piece = {
           player,
-          type: PIECE_TYPES.HORSE,
-          id: `${player}_horse_${index}`,
+          type: PIECE_TYPES.MAN,  // เริ่มต้นเป็นตัวธรรมดา
+          id: `${player}_piece_${index}`,
           position: { ...pos }
         };
-        this.grid[pos.row][pos.col] = horse;
-        this.horses[player].push(horse);
+        this.grid[pos.row][pos.col] = piece;
+        this.pieces[player].push(piece);
       });
     }
   }
@@ -46,30 +47,45 @@ export class Board {
     const piece = this.getPieceAt(fromRow, fromCol);
     if (!piece) return false;
 
-    const targetPiece = this.getPieceAt(toRow, toCol);
-
+    // ย้ายตัวหมาก
     this.grid[toRow][toCol] = piece;
     this.grid[fromRow][fromCol] = null;
-
     piece.position = { row: toRow, col: toCol };
 
-    if (targetPiece && targetPiece.player !== piece.player) {
-      this.removePiece(targetPiece);
+    return true;
+  }
+
+  removePiece(row, col) {
+    const piece = this.getPieceAt(row, col);
+    if (!piece) return false;
+
+    this.grid[row][col] = null;
+
+    // ลบจาก array ของผู้เล่น
+    const pieces = this.pieces[piece.player];
+    const index = pieces.findIndex(p => p.id === piece.id);
+    if (index !== -1) {
+      pieces.splice(index, 1);
     }
 
     return true;
   }
 
-  removePiece(piece) {
-    const horses = this.horses[piece.player];
-    const index = horses.findIndex(h => h.id === piece.id);
-    if (index !== -1) {
-      horses.splice(index, 1);
-    }
+  promotePiece(row, col) {
+    const piece = this.getPieceAt(row, col);
+    if (!piece || piece.type === PIECE_TYPES.KING) return false;
+
+    piece.type = PIECE_TYPES.KING;
+    return true;
   }
 
   isValidPosition(row, col) {
     return row >= 0 && row < BOARD_SIZE && col >= 0 && col < BOARD_SIZE;
+  }
+
+  isDarkSquare(row, col) {
+    // หมากฮอสเล่นบนช่องดำเท่านั้น
+    return (row + col) % 2 === 1;
   }
 
   isEmpty(row, col) {
@@ -81,17 +97,42 @@ export class Board {
     return piece && piece.player !== player;
   }
 
-  getPlayerHorses(player) {
-    return this.horses[player];
+  getPlayerPieces(player) {
+    return this.pieces[player];
+  }
+
+  countPieces(player) {
+    return this.pieces[player].length;
+  }
+
+  countKings(player) {
+    return this.pieces[player].filter(p => p.type === PIECE_TYPES.KING).length;
   }
 
   clone() {
     const newBoard = new Board();
-    newBoard.grid = this.grid.map(row => [...row]);
-    newBoard.horses = {
-      [PLAYERS.WHITE]: [...this.horses[PLAYERS.WHITE]],
-      [PLAYERS.BLACK]: [...this.horses[PLAYERS.BLACK]]
+
+    // Clear and copy grid
+    newBoard.grid = this.grid.map(row =>
+      row.map(cell => cell ? { ...cell, position: { ...cell.position } } : null)
+    );
+
+    // Clear and copy pieces arrays
+    newBoard.pieces = {
+      [PLAYERS.WHITE]: [],
+      [PLAYERS.BLACK]: []
     };
+
+    // Rebuild pieces arrays from grid
+    for (let row = 0; row < BOARD_SIZE; row++) {
+      for (let col = 0; col < BOARD_SIZE; col++) {
+        const piece = newBoard.grid[row][col];
+        if (piece) {
+          newBoard.pieces[piece.player].push(piece);
+        }
+      }
+    }
+
     return newBoard;
   }
 
@@ -100,9 +141,9 @@ export class Board {
       row.map(cell => {
         if (!cell) return 0;
         if (cell.player === PLAYERS.WHITE) {
-          return cell.type === PIECE_TYPES.HORSE ? 1 : 0;
+          return cell.type === PIECE_TYPES.KING ? 2 : 1;
         } else {
-          return cell.type === PIECE_TYPES.HORSE ? -1 : 0;
+          return cell.type === PIECE_TYPES.KING ? -2 : -1;
         }
       })
     );
@@ -113,7 +154,8 @@ export class Board {
     this.grid.forEach((row, i) => {
       const rowStr = row.map(cell => {
         if (!cell) return '.';
-        return cell.player === PLAYERS.WHITE ? 'W' : 'B';
+        const symbol = cell.player === PLAYERS.WHITE ? 'w' : 'b';
+        return cell.type === PIECE_TYPES.KING ? symbol.toUpperCase() : symbol;
       }).join(' ');
       console.log(`${i} ${rowStr}`);
     });
