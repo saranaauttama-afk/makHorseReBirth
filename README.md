@@ -1,6 +1,6 @@
-# 🐴 Thai Horse Chess AI (หมากฮอสไทย AI)
+# 🔴 Thai Checkers AI (หมากฮอสไทย AI)
 
-A Thai Horse Chess game with AI opponent built using React Native (Expo) and JavaScript. Features a Minimax AI with alpha-beta pruning for challenging gameplay.
+A complete Thai Checkers (หมากฮอสไทย) game with AI opponent built using React Native (Expo) and JavaScript. Features a Minimax AI with alpha-beta pruning for challenging gameplay.
 
 ## 🎮 Features
 
@@ -62,11 +62,15 @@ src/
 
 ## 🎯 Game Rules
 
-Thai Horse Chess (หมากฮอส) is played on an 8x8 board where:
-- Each player starts with 2 knights (horses)
-- Knights move in an L-shape (like in chess)
+Thai Checkers (หมากฮอสไทย) is played on an 8x8 board where:
+- Each player starts with 8 pieces on dark squares
+- Men move diagonally forward 1 square
+- Kings (promoted pieces) move multiple squares diagonally
+- Capture by jumping over opponent's pieces
+- **Mandatory capture** - must capture if possible
+- **Chain captures** - continue capturing until no more captures available
+- **Promotion** - pieces reaching the far end become kings
 - Goal: Capture all opponent's pieces or block their moves
-- The game ends when one player has no horses left or cannot move
 
 ## 🤖 AI Implementation
 
