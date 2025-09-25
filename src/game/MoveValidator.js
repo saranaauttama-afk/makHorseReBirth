@@ -4,7 +4,7 @@ import {
   MAN_MOVE_DIRECTIONS,
   KING_MOVE_DIRECTIONS,
   PROMOTION_ROW
-} from '../utils/constants';
+} from '../utils/constants.js';
 
 export class MoveValidator {
   static getValidMoves(board, row, col) {

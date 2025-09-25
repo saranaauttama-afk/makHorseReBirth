@@ -1,18 +1,22 @@
-import { PLAYERS, BOARD_SIZE } from '../utils/constants';
-import { MoveValidator } from '../game/MoveValidator';
+import { PLAYERS, BOARD_SIZE } from '../utils/constants.js';
+import { MoveValidator } from '../game/MoveValidator.js';
 
 export class EvaluationFunction {
   static WEIGHTS = {
     PIECE_VALUE: 1000,
-    CENTER_CONTROL: 15,
-    MOBILITY: 8,
-    ENEMY_DISTANCE: -5,
-    ALLY_DISTANCE: 3,
-    ATTACK_THREAT: 25,
-    PROTECTION: 10,
-    ENDGAME_BONUS: 30,
-    CORNER_PENALTY: -20,
-    EDGE_PENALTY: -10
+    KING_VALUE: 1500,        // Kings are more valuable
+    CENTER_CONTROL: 25,      // Increased center control importance
+    MOBILITY: 15,            // Increased mobility importance
+    ENEMY_DISTANCE: -8,      // Penalty for being far from enemies
+    ALLY_DISTANCE: 5,        // Bonus for piece coordination
+    ATTACK_THREAT: 40,       // Increased threat evaluation
+    PROTECTION: 15,          // Increased protection value
+    ENDGAME_BONUS: 50,       // Stronger endgame evaluation
+    CORNER_PENALTY: -30,     // Stronger corner penalty
+    EDGE_PENALTY: -15,       // Stronger edge penalty
+    ADVANCEMENT: 12,         // Bonus for advancing pieces
+    KING_SAFETY: 20,         // Bonus for keeping kings safe
+    TEMPO: 8                 // Tempo advantage bonus
   };
 
   static evaluate(gameEngine, player) {
@@ -30,17 +34,30 @@ export class EvaluationFunction {
     score += this.evaluateMobility(gameEngine, player);
     score += this.evaluateThreats(gameEngine, player);
     score += this.evaluateEndgame(gameEngine, player);
+    score += this.evaluateAdvancement(gameEngine, player);
+    score += this.evaluateKingSafety(gameEngine, player);
+    score += this.evaluateTempo(gameEngine, player);
 
     return score;
   }
 
   static evaluateMaterial(gameEngine, player) {
-    const myPieces = gameEngine.board.countPieces(player);
-    const oppPieces = gameEngine.board.countPieces(
-      player === PLAYERS.WHITE ? PLAYERS.BLACK : PLAYERS.WHITE
-    );
+    const opponent = player === PLAYERS.WHITE ? PLAYERS.BLACK : PLAYERS.WHITE;
 
-    return (myPieces - oppPieces) * this.WEIGHTS.PIECE_VALUE;
+    // Count men and kings separately
+    const myPieces = gameEngine.board.countPieces(player);
+    const myKings = gameEngine.board.countKings(player);
+    const myMen = myPieces - myKings;
+
+    const oppPieces = gameEngine.board.countPieces(opponent);
+    const oppKings = gameEngine.board.countKings(opponent);
+    const oppMen = oppPieces - oppKings;
+
+    // Calculate material advantage
+    const menAdvantage = (myMen - oppMen) * this.WEIGHTS.PIECE_VALUE;
+    const kingAdvantage = (myKings - oppKings) * this.WEIGHTS.KING_VALUE;
+
+    return menAdvantage + kingAdvantage;
   }
 
   static evaluatePosition(gameEngine, player) {
@@ -208,5 +225,61 @@ export class EvaluationFunction {
     } else {
       return Math.ceil((m + n) / 3);
     }
+  }
+
+  static evaluateAdvancement(gameEngine, player) {
+    let score = 0;
+    const myPieces = gameEngine.board.getPlayerPieces(player);
+
+    for (const piece of myPieces) {
+      if (piece.type === 'MAN') {
+        // Bonus for advancing towards promotion
+        if (player === PLAYERS.WHITE) {
+          // White advances towards row 0
+          score += (7 - piece.position.row) * this.WEIGHTS.ADVANCEMENT;
+        } else {
+          // Black advances towards row 7
+          score += piece.position.row * this.WEIGHTS.ADVANCEMENT;
+        }
+      }
+    }
+
+    return score;
+  }
+
+  static evaluateKingSafety(gameEngine, player) {
+    let score = 0;
+    const myKings = gameEngine.board.getPlayerPieces(player)
+      .filter(p => p.type === 'KING');
+    const opponent = player === PLAYERS.WHITE ? PLAYERS.BLACK : PLAYERS.WHITE;
+    const oppPieces = gameEngine.board.getPlayerPieces(opponent);
+
+    for (const king of myKings) {
+      // Penalty for kings being too close to enemy pieces
+      let minEnemyDistance = Infinity;
+      for (const enemy of oppPieces) {
+        const distance = this.getManhattanDistance(
+          king.position.row, king.position.col,
+          enemy.position.row, enemy.position.col
+        );
+        minEnemyDistance = Math.min(minEnemyDistance, distance);
+      }
+
+      if (minEnemyDistance < 3) {
+        score -= this.WEIGHTS.KING_SAFETY * (3 - minEnemyDistance);
+      } else {
+        score += this.WEIGHTS.KING_SAFETY;
+      }
+    }
+
+    return score;
+  }
+
+  static evaluateTempo(gameEngine, player) {
+    // Bonus for having the move (tempo advantage)
+    if (gameEngine.currentPlayer === player) {
+      return this.WEIGHTS.TEMPO;
+    }
+    return 0;
   }
 }

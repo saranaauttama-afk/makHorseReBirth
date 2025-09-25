@@ -11,7 +11,12 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { GameEngine } from './src/game/GameEngine';
 import { MinimaxAI } from './src/ai/MinimaxAI';
+import { NeuralNetworkAI } from './src/ai/NeuralNetworkAI';
+import { MCTSAI } from './src/ai/MCTSAI';
 import { PLAYERS, GAME_STATUS } from './src/utils/constants';
+import { runThaiCheckersTests } from './src/game/ThaiCheckersTest';
+import * as tf from '@tensorflow/tfjs';
+import '@tensorflow/tfjs-react-native';
 
 export default function App() {
   const [gameEngine, setGameEngine] = useState(new GameEngine());
@@ -21,9 +26,15 @@ export default function App() {
   const [isAIThinking, setIsAIThinking] = useState(false);
   const [gameStatus, setGameStatus] = useState(GAME_STATUS.PLAYING);
   const [currentPlayer, setCurrentPlayer] = useState(PLAYERS.WHITE);
-  const [aiLevel, setAiLevel] = useState(3);
+  const [aiLevel, setAiLevel] = useState(4); // Start with harder difficulty
+  const [aiType, setAiType] = useState('minimax'); // 'minimax', 'neural', or 'mcts'
+  const [nnReady, setNnReady] = useState(false);
+  const [tfReady, setTfReady] = useState(false);
 
-  const ai = React.useRef(new MinimaxAI(aiLevel, PLAYERS.BLACK));
+  const minimaxAI = React.useRef(new MinimaxAI(4, PLAYERS.BLACK)); // Start with depth 4
+  const neuralAI = React.useRef(null);
+  const mctsAI = React.useRef(new MCTSAI({ iterations: 500, timeLimit: 4000 }, PLAYERS.BLACK)); // Stronger MCTS
+  const ai = React.useRef(minimaxAI.current);
 
   useEffect(() => {
     if (currentPlayer === PLAYERS.BLACK && gameStatus === GAME_STATUS.PLAYING) {
@@ -31,11 +42,64 @@ export default function App() {
     }
   }, [currentPlayer, gameStatus]);
 
+  // Initialize TensorFlow and Neural Network
+  useEffect(() => {
+    initializeTensorFlow();
+  }, []);
+
+  const initializeTensorFlow = async () => {
+    try {
+      // Wait for TensorFlow to initialize
+      await tf.ready();
+      console.log('TensorFlow.js ready, backend:', tf.getBackend());
+      setTfReady(true);
+
+      // Create Neural Network AI
+      neuralAI.current = new NeuralNetworkAI(null, PLAYERS.BLACK);
+
+      // Load or create neural network model
+      const loaded = await neuralAI.current.loadModel('localstorage://thai-checkers-demo-model');
+
+      setNnReady(true);
+      console.log('Neural Network AI ready');
+    } catch (error) {
+      console.error('Failed to initialize Neural Network:', error);
+      // Fall back to Minimax
+      setAiType('minimax');
+    }
+  };
+
+  // Update AI reference when type changes
+  useEffect(() => {
+    if (aiType === 'neural' && neuralAI.current && nnReady) {
+      ai.current = neuralAI.current;
+      console.log('Switched to Neural Network AI');
+    } else if (aiType === 'mcts') {
+      ai.current = mctsAI.current;
+      console.log('Switched to MCTS AI');
+    } else {
+      ai.current = minimaxAI.current;
+      console.log('Using Minimax AI');
+    }
+  }, [aiType, nnReady]);
+
+  // Update Minimax depth when level changes
+  useEffect(() => {
+    minimaxAI.current.maxDepth = aiLevel;
+  }, [aiLevel]);
+
   const makeAIMove = async () => {
     setIsAIThinking(true);
 
-    setTimeout(() => {
-      const move = ai.current.getBestMove(gameEngine);
+    setTimeout(async () => {
+      let move;
+      if (aiType === 'neural' && neuralAI.current && nnReady) {
+        move = await neuralAI.current.getBestMove(gameEngine);
+      } else if (aiType === 'mcts') {
+        move = mctsAI.current.getBestMove(gameEngine);
+      } else {
+        move = ai.current.getBestMove(gameEngine);
+      }
 
       if (move) {
         const result = gameEngine.makeMove(
@@ -208,7 +272,13 @@ export default function App() {
 
   const changeAILevel = (level) => {
     setAiLevel(level);
-    ai.current.setDepth(level);
+    if (aiType === 'minimax') {
+      minimaxAI.current.maxDepth = level;
+    } else if (aiType === 'mcts') {
+      // Adjust MCTS iterations based on difficulty
+      const iterations = level === 2 ? 200 : level === 3 ? 300 : level === 4 ? 500 : 800;
+      mctsAI.current.setConfig({ iterations, timeLimit: 3000 });
+    }
     resetGame();
   };
 
@@ -238,8 +308,61 @@ export default function App() {
           </TouchableOpacity>
         </View>
 
+        {/* AI Type Selector */}
+        <View style={styles.aiTypeContainer}>
+          <Text style={styles.aiTypeLabel}>ประเภท AI:</Text>
+          <View style={styles.aiTypeButtons}>
+            <TouchableOpacity
+              style={[
+                styles.aiTypeButton,
+                aiType === 'minimax' && styles.selectedAiType
+              ]}
+              onPress={() => setAiType('minimax')}
+            >
+              <Text style={[
+                styles.aiTypeButtonText,
+                aiType === 'minimax' && styles.selectedAiTypeText
+              ]}>
+                Minimax
+              </Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[
+                styles.aiTypeButton,
+                aiType === 'neural' && styles.selectedAiType,
+                !nnReady && styles.disabledButton
+              ]}
+              onPress={() => nnReady && setAiType('neural')}
+              disabled={!nnReady}
+            >
+              <Text style={[
+                styles.aiTypeButtonText,
+                aiType === 'neural' && styles.selectedAiTypeText,
+                !nnReady && styles.disabledText
+              ]}>
+                Neural Network
+                {!nnReady && ' (Loading...)'}
+              </Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[
+                styles.aiTypeButton,
+                aiType === 'mcts' && styles.selectedAiType
+              ]}
+              onPress={() => setAiType('mcts')}
+            >
+              <Text style={[
+                styles.aiTypeButtonText,
+                aiType === 'mcts' && styles.selectedAiTypeText
+              ]}>
+                MCTS
+              </Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+
         <View style={styles.difficultyContainer}>
-          <Text style={styles.difficultyLabel}>ระดับ AI:</Text>
+          <Text style={styles.difficultyLabel}>ระดับ AI{aiType === 'minimax' ? ' (Depth)' : ''}:</Text>
           <View style={styles.difficultyButtons}>
             {[
               { label: 'ง่าย', value: 2 },
@@ -371,8 +494,47 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '600',
   },
+  aiTypeContainer: {
+    marginVertical: 10,
+    alignItems: 'center',
+  },
+  aiTypeLabel: {
+    fontSize: 16,
+    marginBottom: 10,
+    color: '#555',
+  },
+  aiTypeButtons: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+  },
+  aiTypeButton: {
+    paddingHorizontal: 20,
+    paddingVertical: 10,
+    marginHorizontal: 5,
+    backgroundColor: '#f0f0f0',
+    borderRadius: 5,
+    borderWidth: 1,
+    borderColor: '#ddd',
+  },
+  selectedAiType: {
+    backgroundColor: '#007AFF',
+    borderColor: '#0056b3',
+  },
+  aiTypeButtonText: {
+    color: '#333',
+  },
+  selectedAiTypeText: {
+    color: 'white',
+    fontWeight: 'bold',
+  },
+  disabledButton: {
+    opacity: 0.5,
+  },
+  disabledText: {
+    color: '#999',
+  },
   difficultyContainer: {
-    marginTop: 20,
+    marginTop: 10,
     alignItems: 'center',
   },
   difficultyLabel: {

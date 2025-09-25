@@ -1,6 +1,6 @@
-import { Board } from './Board';
-import { MoveValidator } from './MoveValidator';
-import { PLAYERS, GAME_STATUS, PIECE_TYPES, PROMOTION_ROW } from '../utils/constants';
+import { Board } from './Board.js';
+import { MoveValidator } from './MoveValidator.js';
+import { PLAYERS, GAME_STATUS, PIECE_TYPES, PROMOTION_ROW } from '../utils/constants.js';
 
 export class GameEngine {
   constructor() {

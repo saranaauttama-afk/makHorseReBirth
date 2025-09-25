@@ -1,5 +1,5 @@
-import { EvaluationFunction } from './EvaluationFunction';
-import { PLAYERS } from '../utils/constants';
+import { EvaluationFunction } from './EvaluationFunction.js';
+import { PLAYERS } from '../utils/constants.js';
 
 export class MinimaxAI {
   constructor(depth = 4, player = PLAYERS.BLACK) {

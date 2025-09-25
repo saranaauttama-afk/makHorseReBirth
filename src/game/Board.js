@@ -1,4 +1,4 @@
-import { BOARD_SIZE, PLAYERS, PIECE_TYPES, INITIAL_POSITIONS } from '../utils/constants';
+import { BOARD_SIZE, PLAYERS, PIECE_TYPES, INITIAL_POSITIONS } from '../utils/constants.js';
 
 export class Board {
   constructor() {
