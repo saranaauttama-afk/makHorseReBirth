@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(rm:*)",
+      "Read(//d/MyApp/**)",
+      "Read(//d/MyApp/makhosRebirth/**)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}

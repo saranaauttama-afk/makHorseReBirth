@@ -1,29 +1,28 @@
-import { PLAYERS, BOARD_SIZE } from '../utils/constants.js';
+import { PLAYERS, BOARD_SIZE, PIECE_TYPES } from '../utils/constants.js';
 import { MoveValidator } from '../game/MoveValidator.js';
 
 export class EvaluationFunction {
   static WEIGHTS = {
-    PIECE_VALUE: 1000,
-    KING_VALUE: 1500,        // Kings are more valuable
-    CENTER_CONTROL: 25,      // Increased center control importance
-    MOBILITY: 15,            // Increased mobility importance
-    ENEMY_DISTANCE: -8,      // Penalty for being far from enemies
-    ALLY_DISTANCE: 5,        // Bonus for piece coordination
-    ATTACK_THREAT: 40,       // Increased threat evaluation
-    PROTECTION: 15,          // Increased protection value
-    ENDGAME_BONUS: 50,       // Stronger endgame evaluation
-    CORNER_PENALTY: -30,     // Stronger corner penalty
-    EDGE_PENALTY: -15,       // Stronger edge penalty
-    ADVANCEMENT: 12,         // Bonus for advancing pieces
-    KING_SAFETY: 20,         // Bonus for keeping kings safe
-    TEMPO: 8                 // Tempo advantage bonus
+    PIECE_VALUE: 100,
+    KING_VALUE: 300,
+    CENTER_CONTROL: 5,
+    MOBILITY: 15,
+    BACK_ROW_BONUS: 10,
+    ATTACK_THREAT: 25,
+    ENDGAME_BONUS: 50,
+    CORNER_PENALTY: -15,
+    EDGE_PENALTY: -8,
+    ADVANCEMENT: 12,
+    KING_CENTRALIZATION: 20,
+    PIECE_UNDER_ATTACK: -80,
+    TEMPO: 3
   };
 
   static evaluate(gameEngine, player) {
     if (gameEngine.isGameOver()) {
       const winner = gameEngine.getWinner();
-      if (winner === player) return 100000;
-      if (winner !== null) return -100000;
+      if (winner === player) return 5000;
+      if (winner !== null) return -5000;
       return 0;
     }
 
@@ -35,7 +34,7 @@ export class EvaluationFunction {
     score += this.evaluateThreats(gameEngine, player);
     score += this.evaluateEndgame(gameEngine, player);
     score += this.evaluateAdvancement(gameEngine, player);
-    score += this.evaluateKingSafety(gameEngine, player);
+    score += this.evaluateKingPosition(gameEngine, player);
     score += this.evaluateTempo(gameEngine, player);
 
     return score;
@@ -44,7 +43,6 @@ export class EvaluationFunction {
   static evaluateMaterial(gameEngine, player) {
     const opponent = player === PLAYERS.WHITE ? PLAYERS.BLACK : PLAYERS.WHITE;
 
-    // Count men and kings separately
     const myPieces = gameEngine.board.countPieces(player);
     const myKings = gameEngine.board.countKings(player);
     const myMen = myPieces - myKings;
@@ -53,7 +51,6 @@ export class EvaluationFunction {
     const oppKings = gameEngine.board.countKings(opponent);
     const oppMen = oppPieces - oppKings;
 
-    // Calculate material advantage
     const menAdvantage = (myMen - oppMen) * this.WEIGHTS.PIECE_VALUE;
     const kingAdvantage = (myKings - oppKings) * this.WEIGHTS.KING_VALUE;
 
@@ -63,32 +60,18 @@ export class EvaluationFunction {
   static evaluatePosition(gameEngine, player) {
     let score = 0;
     const myPieces = gameEngine.board.getPlayerPieces(player);
-    const opponent = player === PLAYERS.WHITE ? PLAYERS.BLACK : PLAYERS.WHITE;
-    const oppPieces = gameEngine.board.getPlayerPieces(opponent);
 
     for (const piece of myPieces) {
       const { row, col } = piece.position;
 
-      score += this.getCenterControlScore(row, col);
-      score += this.getEdgePenalty(row, col);
+      if (piece.type === PIECE_TYPES.MAN) {
+        score += this.getCenterControlScore(row, col);
+        score += this.getEdgePenalty(row, col);
 
-      for (const oppPiece of oppPieces) {
-        const distance = this.getManhattanDistance(
-          row, col,
-          oppPiece.position.row,
-          oppPiece.position.col
-        );
-        score += distance * this.WEIGHTS.ENEMY_DISTANCE;
-      }
-
-      for (const allyPiece of myPieces) {
-        if (allyPiece.id !== piece.id) {
-          const distance = this.getManhattanDistance(
-            row, col,
-            allyPiece.position.row,
-            allyPiece.position.col
-          );
-          score += Math.max(0, 4 - distance) * this.WEIGHTS.ALLY_DISTANCE;
+        if (player === PLAYERS.WHITE && row === 0) {
+          score += this.WEIGHTS.BACK_ROW_BONUS;
+        } else if (player === PLAYERS.BLACK && row === 7) {
+          score += this.WEIGHTS.BACK_ROW_BONUS;
         }
       }
     }
@@ -121,17 +104,18 @@ export class EvaluationFunction {
 
   static evaluateMobility(gameEngine, player) {
     const opponent = player === PLAYERS.WHITE ? PLAYERS.BLACK : PLAYERS.WHITE;
-
     const originalPlayer = gameEngine.currentPlayer;
 
     gameEngine.currentPlayer = player;
     const myMoves = MoveValidator.getAllValidMovesForPlayer(
-      gameEngine.board, player
+      gameEngine.board,
+      player
     ).length;
 
     gameEngine.currentPlayer = opponent;
     const oppMoves = MoveValidator.getAllValidMovesForPlayer(
-      gameEngine.board, opponent
+      gameEngine.board,
+      opponent
     ).length;
 
     gameEngine.currentPlayer = originalPlayer;
@@ -145,37 +129,42 @@ export class EvaluationFunction {
     const myPieces = gameEngine.board.getPlayerPieces(player);
     const oppPieces = gameEngine.board.getPlayerPieces(opponent);
 
-    for (const piece of myPieces) {
-      const { row, col } = piece.position;
-      const validMoves = MoveValidator.getValidMoves(gameEngine.board, row, col);
+    const originalPlayer = gameEngine.currentPlayer;
 
-      for (const move of validMoves) {
-        if (move.type === 'capture' && move.captured) {
-          score += this.WEIGHTS.ATTACK_THREAT;
-        }
-      }
+    gameEngine.currentPlayer = player;
+    const myMoves = MoveValidator.getAllValidMovesForPlayer(gameEngine.board, player);
+    const myCaptures = myMoves.filter(m => m.type === 'capture');
+    score += myCaptures.length * this.WEIGHTS.ATTACK_THREAT;
 
-      for (const allyPiece of myPieces) {
-        if (allyPiece.id !== piece.id) {
-          const protectionMoves = MoveValidator.getValidMoves(
-            gameEngine.board,
-            allyPiece.position.row,
-            allyPiece.position.col
-          );
+    gameEngine.currentPlayer = opponent;
+    const oppMoves = MoveValidator.getAllValidMovesForPlayer(gameEngine.board, opponent);
+    const oppCaptures = oppMoves.filter(m => m.type === 'capture');
 
-          if (protectionMoves.some(m => m.to.row === row && m.to.col === col)) {
-            score += this.WEIGHTS.PROTECTION;
+    for (const capture of oppCaptures) {
+      const capturedPieces = Array.isArray(capture.capturedPieces)
+        ? capture.capturedPieces
+        : [];
+
+      for (const capturedPos of capturedPieces) {
+        const capturedPiece = gameEngine.board.getPieceAt(capturedPos.row, capturedPos.col);
+        if (capturedPiece && capturedPiece.player === player) {
+          score += this.WEIGHTS.PIECE_UNDER_ATTACK;
+          if (capturedPiece.type === PIECE_TYPES.KING) {
+            score += this.WEIGHTS.PIECE_UNDER_ATTACK;
           }
         }
       }
     }
 
+    gameEngine.currentPlayer = originalPlayer;
+
     return score;
   }
 
   static evaluateEndgame(gameEngine, player) {
-    const totalPieces = gameEngine.board.countPieces(PLAYERS.WHITE) +
-                        gameEngine.board.countPieces(PLAYERS.BLACK);
+    const totalPieces =
+      gameEngine.board.countPieces(PLAYERS.WHITE) +
+      gameEngine.board.countPieces(PLAYERS.BLACK);
 
     if (totalPieces > 4) return 0;
 
@@ -195,7 +184,7 @@ export class EvaluationFunction {
             oppPiece.position.row,
             oppPiece.position.col
           );
-          score -= distance * 2;
+          score -= distance * 1.5;
         }
       }
     }
@@ -207,38 +196,15 @@ export class EvaluationFunction {
     return Math.abs(r1 - r2) + Math.abs(c1 - c2);
   }
 
-  static getKnightDistance(r1, c1, r2, c2) {
-    const dx = Math.abs(r1 - r2);
-    const dy = Math.abs(c1 - c2);
-
-    if (dx + dy === 1) return 3;
-    if (dx === 2 && dy === 1) return 1;
-    if (dx === 1 && dy === 2) return 1;
-    if (dx === 2 && dy === 2) return 2;
-    if (dx === 1 && dy === 1) return 2;
-
-    const m = Math.max(dx, dy);
-    const n = Math.min(dx, dy);
-
-    if (n <= m / 2) {
-      return Math.ceil(m / 2);
-    } else {
-      return Math.ceil((m + n) / 3);
-    }
-  }
-
   static evaluateAdvancement(gameEngine, player) {
     let score = 0;
     const myPieces = gameEngine.board.getPlayerPieces(player);
 
     for (const piece of myPieces) {
-      if (piece.type === 'MAN') {
-        // Bonus for advancing towards promotion
+      if (piece.type === PIECE_TYPES.MAN) {
         if (player === PLAYERS.WHITE) {
-          // White advances towards row 0
           score += (7 - piece.position.row) * this.WEIGHTS.ADVANCEMENT;
         } else {
-          // Black advances towards row 7
           score += piece.position.row * this.WEIGHTS.ADVANCEMENT;
         }
       }
@@ -247,36 +213,32 @@ export class EvaluationFunction {
     return score;
   }
 
-  static evaluateKingSafety(gameEngine, player) {
+  static evaluateKingPosition(gameEngine, player) {
     let score = 0;
-    const myKings = gameEngine.board.getPlayerPieces(player)
-      .filter(p => p.type === 'KING');
+    const myKings = gameEngine.board
+      .getPlayerPieces(player)
+      .filter(p => p.type === PIECE_TYPES.KING);
     const opponent = player === PLAYERS.WHITE ? PLAYERS.BLACK : PLAYERS.WHITE;
     const oppPieces = gameEngine.board.getPlayerPieces(opponent);
+    const myPieces = gameEngine.board.getPlayerPieces(player);
+
+    const totalPieces = myPieces.length + oppPieces.length;
 
     for (const king of myKings) {
-      // Penalty for kings being too close to enemy pieces
-      let minEnemyDistance = Infinity;
-      for (const enemy of oppPieces) {
-        const distance = this.getManhattanDistance(
-          king.position.row, king.position.col,
-          enemy.position.row, enemy.position.col
-        );
-        minEnemyDistance = Math.min(minEnemyDistance, distance);
+      const { row, col } = king.position;
+
+      if (totalPieces <= 6) {
+        const centerDistance = Math.abs(row - 3.5) + Math.abs(col - 3.5);
+        score += (7 - centerDistance) * this.WEIGHTS.KING_CENTRALIZATION;
       }
 
-      if (minEnemyDistance < 3) {
-        score -= this.WEIGHTS.KING_SAFETY * (3 - minEnemyDistance);
-      } else {
-        score += this.WEIGHTS.KING_SAFETY;
-      }
+      score += this.getEdgePenalty(row, col);
     }
 
     return score;
   }
 
   static evaluateTempo(gameEngine, player) {
-    // Bonus for having the move (tempo advantage)
     if (gameEngine.currentPlayer === player) {
       return this.WEIGHTS.TEMPO;
     }

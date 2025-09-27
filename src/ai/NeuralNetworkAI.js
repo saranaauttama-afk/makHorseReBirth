@@ -19,22 +19,38 @@ export class NeuralNetworkAI {
   /**
    * Load the neural network model
    */
-  async loadModel(path = 'localstorage://thai-checkers-model-v1') {
+  async loadModel(path = null) {
     try {
-      this.model = await this.neuralNetwork.loadModel(path);
-      this.isReady = true;
-      console.log('Neural network AI ready');
-      return true;
+      // Try to load trained model from assets first
+      if (!path) {
+        console.log('🧠 Loading trained Neural Network model from assets...');
+
+        // Load from assets (trained model)
+        const { Asset } = require('expo-asset');
+        const modelAsset = Asset.fromModule(require('../../assets/model/model.json'));
+        await modelAsset.downloadAsync();
+
+        this.model = await tf.loadGraphModel(modelAsset.uri);
+        this.isReady = true;
+        console.log('✅ Trained Neural Network AI ready!');
+        return true;
+      } else {
+        // Load from specified path
+        this.model = await this.neuralNetwork.loadModel(path);
+        this.isReady = true;
+        console.log('Neural network AI ready');
+        return true;
+      }
     } catch (error) {
-      console.log('Failed to load model, creating new one...');
+      console.log('⚠️  Failed to load trained model, falling back to demo model...');
       try {
-        // Try to create new model
+        // Fallback to demo model
         this.model = this.neuralNetwork.createModel();
         this.isReady = true;
-        console.log('Neural network AI ready (new model)');
+        console.log('Neural network AI ready (demo model)');
         return true;
       } catch (createError) {
-        console.error('Failed to create model:', createError);
+        console.error('❌ Failed to create model:', createError);
         this.isReady = false;
         return false;
       }
@@ -78,7 +94,32 @@ export class NeuralNetworkAI {
       boardTensor.dispose();
 
       // Get neural network predictions
-      const { policy, value } = await this.neuralNetwork.predict(tensorWithMask);
+      let policy, value;
+
+      if (this.model) {
+        // Use GraphModel (trained model)
+        const input = tensorWithMask.expandDims(0);
+        const predictions = this.model.predict(input);
+
+        const policyTensor = Array.isArray(predictions) ? predictions[0] : predictions['policy_output'];
+        const valueTensor = Array.isArray(predictions) ? predictions[1] : predictions['value_output'];
+
+        const policyArray = await policyTensor.data();
+        const valueArray = await valueTensor.data();
+
+        policy = policyArray;
+        value = valueArray;
+
+        input.dispose();
+        policyTensor.dispose();
+        valueTensor.dispose();
+      } else {
+        // Use LayersModel (demo model)
+        const result = await this.neuralNetwork.predict(tensorWithMask);
+        policy = result.policy;
+        value = [result.value];
+      }
+
       tensorWithMask.dispose();
 
       // Find best valid move based on policy
@@ -88,9 +129,24 @@ export class NeuralNetworkAI {
       // Apply temperature for move selection
       const scores = this.applyTemperature(policy, this.temperature);
 
+      // DEBUG: เช็ค value ก่อน
+      const valueScore = value[0] || 0;
+      console.log(`NN Value: ${valueScore} (${gameEngine.currentPlayer === this.player ? 'Our turn' : 'Enemy turn'})`);
+
       validMoves.forEach(move => {
         const policyIndex = DataProcessor.moveToPolicyIndex(move);
-        const score = scores[policyIndex] || 0;
+        let score = scores[policyIndex] || 0;
+
+        // BOOST: Prioritize capture moves heavily (NN doesn't understand tactics yet)
+        if (move.captured && move.captured.length > 0) {
+          score += 10.0; // Massive boost for captures
+          score += move.captured.length * 5.0; // Extra for multi-captures
+        }
+
+        // PENALTY: Avoid moves that allow opponent to capture
+        // (Simple heuristic: check if piece ends up vulnerable)
+        const destinationRisk = this.evaluateMoveRisk(gameEngine, move);
+        score -= destinationRisk * 2.0;
 
         if (score > bestScore) {
           bestScore = score;
@@ -100,7 +156,13 @@ export class NeuralNetworkAI {
 
       // Add evaluation to move
       if (bestMove) {
-        bestMove.evaluation = value;
+        // FIX: กลับ value ถ้าเป็นตาเรา และ value ติดลบ
+        let adjustedValue = value[0] || 0;
+        if (gameEngine.currentPlayer === this.player && adjustedValue < 0) {
+          adjustedValue = -adjustedValue;
+        }
+
+        bestMove.evaluation = adjustedValue;
         bestMove.confidence = bestScore;
       }
 
@@ -142,6 +204,48 @@ export class NeuralNetworkAI {
     }
 
     return scaledScores;
+  }
+
+  /**
+   * Evaluate if a move puts piece at risk
+   */
+  evaluateMoveRisk(gameEngine, move) {
+    const { to } = move;
+    const opponent = gameEngine.currentPlayer === PLAYERS.WHITE ? PLAYERS.BLACK : PLAYERS.WHITE;
+
+    // Simple check: can opponent capture at destination?
+    let risk = 0;
+
+    // Check diagonal squares around destination
+    const directions = [
+      { row: -1, col: -1 },
+      { row: -1, col: 1 },
+      { row: 1, col: -1 },
+      { row: 1, col: 1 }
+    ];
+
+    for (const dir of directions) {
+      const attackerRow = to.row + dir.row;
+      const attackerCol = to.col + dir.col;
+
+      if (attackerRow >= 0 && attackerRow < 8 && attackerCol >= 0 && attackerCol < 8) {
+        const attacker = gameEngine.board.getPieceAt(attackerRow, attackerCol);
+        if (attacker && attacker.player === opponent) {
+          // Check if attacker can jump over us
+          const landRow = to.row - dir.row;
+          const landCol = to.col - dir.col;
+
+          if (landRow >= 0 && landRow < 8 && landCol >= 0 && landCol < 8) {
+            const landing = gameEngine.board.getPieceAt(landRow, landCol);
+            if (!landing) {
+              risk += 1.0; // Piece at risk!
+            }
+          }
+        }
+      }
+    }
+
+    return risk;
   }
 
   /**

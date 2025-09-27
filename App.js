@@ -10,9 +10,8 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { GameEngine } from './src/game/GameEngine';
-import { MinimaxAI } from './src/ai/MinimaxAI';
+import { MinimaxAIQuiescence } from './src/ai/MinimaxAIQuiescence';
 import { NeuralNetworkAI } from './src/ai/NeuralNetworkAI';
-import { MCTSAI } from './src/ai/MCTSAI';
 import { PLAYERS, GAME_STATUS } from './src/utils/constants';
 import { runThaiCheckersTests } from './src/game/ThaiCheckersTest';
 import * as tf from '@tensorflow/tfjs';
@@ -26,14 +25,13 @@ export default function App() {
   const [isAIThinking, setIsAIThinking] = useState(false);
   const [gameStatus, setGameStatus] = useState(GAME_STATUS.PLAYING);
   const [currentPlayer, setCurrentPlayer] = useState(PLAYERS.WHITE);
-  const [aiLevel, setAiLevel] = useState(4); // Start with harder difficulty
-  const [aiType, setAiType] = useState('minimax'); // 'minimax', 'neural', or 'mcts'
+  const [aiLevel, setAiLevel] = useState(5); // เริ่มต้นที่ระดับโหดสุด
+  const [aiType, setAiType] = useState('minimax'); // 'minimax' or 'neural'
   const [nnReady, setNnReady] = useState(false);
   const [tfReady, setTfReady] = useState(false);
 
-  const minimaxAI = React.useRef(new MinimaxAI(4, PLAYERS.BLACK)); // Start with depth 4
+  const minimaxAI = React.useRef(new MinimaxAIQuiescence(5, PLAYERS.BLACK)); // ใช้รุ่น Quiescence เป็นพื้นฐาน
   const neuralAI = React.useRef(null);
-  const mctsAI = React.useRef(new MCTSAI({ iterations: 500, timeLimit: 4000 }, PLAYERS.BLACK)); // Stronger MCTS
   const ai = React.useRef(minimaxAI.current);
 
   useEffect(() => {
@@ -74,18 +72,23 @@ export default function App() {
     if (aiType === 'neural' && neuralAI.current && nnReady) {
       ai.current = neuralAI.current;
       console.log('Switched to Neural Network AI');
-    } else if (aiType === 'mcts') {
-      ai.current = mctsAI.current;
-      console.log('Switched to MCTS AI');
     } else {
       ai.current = minimaxAI.current;
-      console.log('Using Minimax AI');
+      if (minimaxAI.current && typeof minimaxAI.current.setDepth === 'function') {
+        minimaxAI.current.setDepth(aiLevel);
+      }
+      console.log('Using Minimax Quiescence AI');
     }
-  }, [aiType, nnReady]);
+  }, [aiType, nnReady, aiLevel]);
 
   // Update Minimax depth when level changes
   useEffect(() => {
-    minimaxAI.current.maxDepth = aiLevel;
+    if (!minimaxAI.current) return;
+    if (typeof minimaxAI.current.setDepth === 'function') {
+      minimaxAI.current.setDepth(aiLevel);
+    } else {
+      minimaxAI.current.maxDepth = aiLevel;
+    }
   }, [aiLevel]);
 
   const makeAIMove = async () => {
@@ -95,8 +98,6 @@ export default function App() {
       let move;
       if (aiType === 'neural' && neuralAI.current && nnReady) {
         move = await neuralAI.current.getBestMove(gameEngine);
-      } else if (aiType === 'mcts') {
-        move = mctsAI.current.getBestMove(gameEngine);
       } else {
         move = ai.current.getBestMove(gameEngine);
       }
@@ -272,12 +273,12 @@ export default function App() {
 
   const changeAILevel = (level) => {
     setAiLevel(level);
-    if (aiType === 'minimax') {
-      minimaxAI.current.maxDepth = level;
-    } else if (aiType === 'mcts') {
-      // Adjust MCTS iterations based on difficulty
-      const iterations = level === 2 ? 200 : level === 3 ? 300 : level === 4 ? 500 : 800;
-      mctsAI.current.setConfig({ iterations, timeLimit: 3000 });
+    if (aiType === 'minimax' && minimaxAI.current) {
+      if (typeof minimaxAI.current.setDepth === 'function') {
+        minimaxAI.current.setDepth(level);
+      } else {
+        minimaxAI.current.maxDepth = level;
+      }
     }
     resetGame();
   };
@@ -342,20 +343,6 @@ export default function App() {
               ]}>
                 Neural Network
                 {!nnReady && ' (Loading...)'}
-              </Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[
-                styles.aiTypeButton,
-                aiType === 'mcts' && styles.selectedAiType
-              ]}
-              onPress={() => setAiType('mcts')}
-            >
-              <Text style={[
-                styles.aiTypeButtonText,
-                aiType === 'mcts' && styles.selectedAiTypeText
-              ]}>
-                MCTS
               </Text>
             </TouchableOpacity>
           </View>
